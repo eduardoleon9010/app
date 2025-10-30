@@ -1,143 +1,150 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import gspread
 from google.oauth2.service_account import Credentials
-import os
+import gspread
 
-# -------------------------------------------------
-# 🔐 CONFIGURACIÓN SEGURA (usa variables de entorno)
-# -------------------------------------------------
-# En Streamlit Cloud, irás a:
-#  Settings → Secrets → Add secrets
-# y pegarás tu JSON de credenciales así:
-# {
-#   "type": "service_account",
-#   "project_id": "...",
-#   "private_key_id": "...",
-#   "private_key": "-----BEGIN PRIVATE KEY-----\\n....\\n-----END PRIVATE KEY-----\\n",
-#   "client_email": "...",
-#   "client_id": "...",
-#   ...
-# }
-
+# ==============================
+# ⚙️ CONFIGURACIÓN INICIAL
+# ==============================
 st.set_page_config(
     page_title="Dashboard de Contactos – NexaTech",
     layout="wide",
-    page_icon="📊",
+    initial_sidebar_state="expanded"
 )
 
-st.title("📈 Dashboard de Contactos – NexaTech")
-st.caption("Análisis profesional e interactivo de la base de datos de networking")
+st.title("📊 Dashboard de Contactos – NexaTech")
+st.markdown("#### Análisis interactivo de base de datos de networking")
 
-# -------------------------------------------------
-# 🔗 Conectar con Google Sheets
-# -------------------------------------------------
-try:
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],  # Aquí Streamlit tomará el JSON de tus Secrets
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive"
-        ],
-    )
+# ==============================
+# 🔐 CONEXIÓN SEGURA CON GOOGLE SHEETS
+# ==============================
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
 
-    client = gspread.authorize(creds)
-    SHEET_ID = "1qqtKqyNqNS7S5fpXenPZTPG5SpcwTmJ1zt9yP2a0coA"  # Tu hoja de NexaTech
-    sheet = client.open_by_key(SHEET_ID).sheet1
-    data = pd.DataFrame(sheet.get_all_records())
+# Usa las credenciales seguras desde Streamlit Secrets
+creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
+client = gspread.authorize(creds)
 
-    st.success("✅ Datos cargados correctamente desde Google Sheets")
+# ID del Sheet (solo cambia este si usas otro documento)
+SHEET_ID = "1qqtKqyNqNS7S5fpXenPZTPG5SpcwTmJ1zt9yP2a0coA"
+sheet = client.open_by_key(SHEET_ID)
+worksheet = sheet.sheet1
 
-except Exception as e:
-    st.error("❌ Error al conectar con Google Sheets. Verifica tus credenciales.")
-    st.exception(e)
-    st.stop()
+# Cargar los datos
+data = pd.DataFrame(worksheet.get_all_records())
 
-# -------------------------------------------------
-# 🧹 Limpieza básica
-# -------------------------------------------------
-data.columns = [col.strip().replace("\n", " ").replace("  ", " ") for col in data.columns]
-for col in data.select_dtypes(include="object"):
-    data[col] = data[col].astype(str).str.strip()
+# Limpiar los nombres de columnas
+data.columns = data.columns.str.strip()
 
-# -------------------------------------------------
-# 🎨 Estilo profesional (modo oscuro)
-# -------------------------------------------------
+# ==============================
+# 🎨 CONFIGURACIÓN VISUAL GENERAL
+# ==============================
 st.markdown("""
 <style>
-body {
-    background-color: #0e1117;
-    color: #fafafa;
-}
-[data-testid="stAppViewContainer"] {
-    background-color: #0e1117;
-}
-[data-testid="stHeader"] {
-    background-color: #0e1117;
-}
+body {background-color: #0e1117; color: white;}
+[data-testid="stSidebar"] {background-color: #111418;}
+.block-container {padding-top: 2rem; padding-bottom: 2rem;}
+h1, h2, h3, h4 {color: #0ef;}
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------------------------------------
-# 📊 Dashboard con filtros dinámicos
-# -------------------------------------------------
-col1, col2, col3 = st.columns(3)
+# ==============================
+# 🎛️ FILTROS INTERACTIVOS
+# ==============================
+st.sidebar.header("🎚️ Filtros de datos")
 
+ciudad = st.sidebar.multiselect("Ciudad o país", options=data["Ciudad y país"].unique())
+sector = st.sidebar.multiselect("Sector o industria", options=data["Sector o industria"].unique())
+
+filtered_data = data.copy()
+if ciudad:
+    filtered_data = filtered_data[filtered_data["Ciudad y país"].isin(ciudad)]
+if sector:
+    filtered_data = filtered_data[filtered_data["Sector o industria"].isin(sector)]
+
+st.sidebar.markdown("---")
+st.sidebar.write(f"**Total de registros filtrados:** {len(filtered_data)}")
+
+# ==============================
+# 📊 DASHBOARD PRINCIPAL
+# ==============================
+
+col1, col2 = st.columns(2)
+
+# --- Gráfico 1: Contactos por Sector ---
 with col1:
-    sector = st.selectbox("Filtrar por Sector o Industria:", ["Todos"] + sorted(data["Sector o industria "].unique()))
+    if "Sector o industria" in filtered_data.columns:
+        fig1 = px.bar(
+            filtered_data,
+            x="Sector o industria",
+            color="Sector o industria",
+            title="Contactos por Sector o Industria",
+            color_discrete_sequence=px.colors.sequential.Viridis_r
+        )
+        fig1.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+            title_font=dict(size=18),
+        )
+        st.plotly_chart(fig1, use_container_width=True)
+
+# --- Gráfico 2: Nivel de interés ---
 with col2:
-    ciudad = st.selectbox("Filtrar por Ciudad:", ["Todos"] + sorted(data["Ciudad y país"].unique()))
+    if "Nivel de interés en recibir más información" in filtered_data.columns:
+        fig2 = px.pie(
+            filtered_data,
+            names="Nivel de interés en recibir más información",
+            title="Distribución de Nivel de Interés",
+            color_discrete_sequence=px.colors.qualitative.Dark2
+        )
+        fig2.update_traces(textinfo="percent+label", textfont_size=14)
+        fig2.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+# --- Gráfico 3: Preferencia de contacto ---
+col3, col4 = st.columns(2)
+
 with col3:
-    interes = st.selectbox("Filtrar por Nivel de Interés:", ["Todos"] + sorted(data["Nivel de interés en recibir más información "].unique()))
+    if "¿Prefieres que te contactemos por...?" in filtered_data.columns:
+        fig3 = px.histogram(
+            filtered_data,
+            x="¿Prefieres que te contactemos por...?",
+            title="Preferencia de Canal de Contacto",
+            color_discrete_sequence=["#00f5d4"]
+        )
+        fig3.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+        )
+        st.plotly_chart(fig3, use_container_width=True)
 
-filtered = data.copy()
-if sector != "Todos":
-    filtered = filtered[filtered["Sector o industria "] == sector]
-if ciudad != "Todos":
-    filtered = filtered[filtered["Ciudad y país"] == ciudad]
-if interes != "Todos":
-    filtered = filtered[filtered["Nivel de interés en recibir más información "] == interes]
+# --- Gráfico 4: Tamaño de empresa ---
+with col4:
+    if "Tamaño de tu empresa/proyecto" in filtered_data.columns:
+        fig4 = px.bar(
+            filtered_data,
+            x="Tamaño de tu empresa/proyecto",
+            title="Tamaño de Empresa o Proyecto",
+            color_discrete_sequence=["#ff6ec7"]
+        )
+        fig4.update_layout(
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+        )
+        st.plotly_chart(fig4, use_container_width=True)
 
-# -------------------------------------------------
-# 📈 Gráficos Neon Interactivos
-# -------------------------------------------------
-st.subheader("📊 Visualizaciones")
-
-# 1️⃣ Contactos por Sector
-fig1 = px.bar(
-    filtered,
-    x="Sector o industria ",
-    title="Contactos por Sector o Industria",
-    color="Sector o industria ",
-    color_discrete_sequence=px.colors.qualitative.Dark24,
-)
-fig1.update_layout(template="plotly_dark", xaxis_title=None, yaxis_title="Cantidad de contactos")
-st.plotly_chart(fig1, use_container_width=True)
-
-# 2️⃣ Contactos por Ciudad
-fig2 = px.pie(
-    filtered,
-    names="Ciudad y país",
-    title="Distribución Geográfica de Contactos",
-    color_discrete_sequence=px.colors.sequential.Aggrnyl_r,
-)
-fig2.update_layout(template="plotly_dark")
-st.plotly_chart(fig2, use_container_width=True)
-
-# 3️⃣ Nivel de interés
-fig3 = px.histogram(
-    filtered,
-    x="Nivel de interés en recibir más información ",
-    title="Nivel de Interés de los Contactos",
-    color="Nivel de interés en recibir más información ",
-    color_discrete_sequence=px.colors.sequential.Viridis_r,
-)
-fig3.update_layout(template="plotly_dark", xaxis_title=None, yaxis_title="Cantidad de contactos")
-st.plotly_chart(fig3, use_container_width=True)
-
-# -------------------------------------------------
-# 📋 Mostrar tabla
-# -------------------------------------------------
-with st.expander("📄 Ver datos detallados"):
-    st.dataframe(filtered)
+# ==============================
+# 📋 TABLA DETALLADA
+# ==============================
+st.markdown("### 📄 Detalle de contactos filtrados")
+st.dataframe(filtered_data, use_container_width=True)
